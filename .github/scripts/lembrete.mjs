@@ -75,18 +75,34 @@ function val(f, k) { return (f[k] && (f[k].stringValue ?? f[k].integerValue ?? f
     const endereco  = val(f, "endereco") || "";
     const salonName = val(f, "salonName") || "Salão";
     const inicio    = Number(val(f, "inicio") || 0);
-    const hora      = String(Math.floor(inicio / 60)).padStart(2, "0") + ":" + String(inicio % 60).padStart(2, "0");
+    const hh = String(Math.floor(inicio / 60)).padStart(2, "0");
+    const mm = String(inicio % 60).padStart(2, "0");
+    const hora = hh + ":" + mm;
     const svcs = (f.servicos?.arrayValue?.values || [])
       .map(v => v.mapValue?.fields?.nome?.stringValue || "")
       .filter(Boolean).join(", ");
 
-    const html = `<!DOCTYPE html><html><body style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#3a2b2e">
-      <h2 style="color:#c0788a">Lembrete do seu horário ❀</h2>
-      <p>Oi <strong>${cliente}</strong>! Seu horário no <strong>${salonName}</strong> é <strong>hoje às ${hora}</strong>.</p>
-      ${svcs ? `<p>Serviço: ${svcs}</p>` : ""}
-      ${endereco ? `<p>📍 ${endereco}</p>` : ""}
-      <p style="margin-top:20px;color:#9c8088;font-size:13px">Te esperamos! 💅</p>
-    </body></html>`;
+    const linhaServico = svcs ? "<p>Serviço: " + svcs + "</p>" : "";
+    const linhaEndereco = endereco ? "<p>📍 " + endereco + "</p>" : "";
+    const html =
+      "<!DOCTYPE html><html><body style=\"font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#3a2b2e\">" +
+      "<h2 style=\"color:#c0788a\">Lembrete do seu horário</h2>" +
+      "<p>Oi <strong>" + cliente + "</strong>! Seu horário no <strong>" + salonName + "</strong> é <strong>hoje às " + hora + "</strong>.</p>" +
+      linhaServico +
+      linhaEndereco +
+      "<p style=\"margin-top:20px;color:#9c8088;font-size:13px\">Te esperamos!</p>" +
+      "</body></html>";
+
+    const subject = "Lembrete: seu horário no " + salonName + " hoje às " + hora;
 
     try {
-      await enviarEmail({ to: email, subject: `Lembrete: seu horário no ${salo
+      await enviarEmail({ to: email, subject, html });
+      await marcar(doc.name);
+      enviados++;
+      console.log("Enviado para " + email + " (" + hora + ")");
+    } catch (e) {
+      console.error("Falha para " + email + ":", e.message);
+    }
+  }
+  console.log("Concluido. " + enviados + " e-mail(s) enviado(s).");
+})();
