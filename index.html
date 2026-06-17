@@ -971,8 +971,10 @@ function renderAgenda(){
     const statusPill = a.status==='concluido'?'<span class="pill" style="background:var(--green-dim);color:var(--green-bright)">Concluído</span>'
       : a.status==='cancelado'?'<span class="pill" style="background:var(--red-dim);color:#e89c91">Cancelado</span>'
       : '<span class="pill" style="background:var(--surface-3);color:var(--brass-bright)">Agendado</span>';
+    const waBtn = a.tel ? `<button class="btn btn-sm" style="background:#25D366;color:#053d23;border-color:#25D366" data-wa="${a.id}">📱 Lembrar</button>` : '';
     const acts = a.status==='agendado'
-      ? `<button class="btn btn-green btn-sm" data-done="${a.id}">✓ Concluir</button>
+      ? `${waBtn}
+         <button class="btn btn-green btn-sm" data-done="${a.id}">✓ Concluir</button>
          <button class="btn btn-danger btn-sm" data-cancel="${a.id}">Cancelar</button>`
       : `<button class="btn btn-ghost btn-sm" data-reopen="${a.id}">Reabrir</button>
          <button class="icon-btn" data-del="${a.id}" title="Excluir">🗑</button>`;
@@ -995,6 +997,23 @@ function renderAgenda(){
   tl.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>setStatus(b.dataset.cancel,'cancelado'));
   tl.querySelectorAll('[data-reopen]').forEach(b=>b.onclick=()=>setStatus(b.dataset.reopen,'agendado'));
   tl.querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{ await dataDelete(b.dataset.del); toast('Agendamento excluído'); });
+  tl.querySelectorAll('[data-wa]').forEach(b=>b.onclick=()=>lembrarWhats(b.dataset.wa));
+}
+function lembrarWhats(id){
+  const a=DB.agendamentos.find(x=>x.id===id); if(!a) return;
+  let tel=String(a.tel||'').replace(/\D/g,'');
+  if(!tel){ toast('Esse agendamento não tem telefone',true); return; }
+  if(tel.length<=11 && !tel.startsWith('55')) tel='55'+tel;   // adiciona DDI Brasil
+  const salao=DB.config.nomeSalao||'nosso salão';
+  const svcs=(a.servicos||[]).map(s=>s.nome).join(' + ');
+  const quando=fmtDay(a.data)+' às '+m2t(a.inicio);
+  let msg='Oi '+(a.cliente||'')+'! 💕 Passando pra lembrar do seu horário no '+salao+'.\n\n';
+  msg+='📅 '+quando+'\n';
+  if(svcs) msg+='💅 '+svcs+'\n';
+  if(a.endereco) msg+='📍 '+a.endereco+'\n';
+  msg+='\nQualquer coisa, é só chamar. Te esperamos! ✨';
+  const url='https://wa.me/'+tel+'?text='+encodeURIComponent(msg);
+  window.open(url,'_blank');
 }
 async function setStatus(id,st){ try{ await dataUpdate(id,{status:st}); toast(st==='concluido'?'Concluído ✓':st==='cancelado'?'Cancelado':'Reaberto'); }catch(e){ toast('Erro: '+(e.message||e),true);} }
 
