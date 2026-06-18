@@ -1,0 +1,39 @@
+name: Lembretes por e-mail
+
+on:
+  schedule:
+    # A cada 15 minutos. ATENÇÃO: o cron do GitHub usa horário UTC, mas como o
+    # script compara timestamps (epoch), o fuso não interfere no resultado.
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}   # permite rodar manualmente pelo botão "Run workflow"
+
+jobs:
+  enviar-lembretes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Enviar lembretes
+        run: python send_reminders.py
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SALON_ID:  ${{ secrets.SALON_ID }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          FROM_NAME: ${{ secrets.FROM_NAME }}
+          SALON_TZ: America/Sao_Paulo
+          LEAD_MINUTES: "60"
