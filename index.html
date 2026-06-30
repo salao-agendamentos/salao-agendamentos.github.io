@@ -672,17 +672,55 @@ function seedDemo(){
 /* ===================== CAMADA DE DADOS (local | nuvem) ===================== */
 async function sRef(){ return fb.doc(fb.db,'saloes',currentSalonId,'config','main'); }
 async function aCol(){ return fb.collection(fb.db,'saloes',currentSalonId,'agendamentos'); }
+async function oCol(){ return fb.collection(fb.db,'saloes',currentSalonId,'ocupados'); }
+// "horário ocupado" = só o necessário p/ a disponibilidade, SEM dados pessoais
+function slimOf(a){ return { barbeiroId:a.barbeiroId, data:a.data, inicio:a.inicio, dur:a.dur, status:a.status }; }
+function agDoc(id){ return fb.doc(fb.db,'saloes',currentSalonId,'agendamentos',id); }
+function ocDoc(id){ return fb.doc(fb.db,'saloes',currentSalonId,'ocupados',id); }
+
 async function dataAdd(appt){
-  if(CLOUD){ const {id,...rest}=appt; const ref=await fb.addDoc(await aCol(),rest); myCreated.add(ref.id); return ref.id; }
+  if(CLOUD){
+    const {id,...rest}=appt;
+    const ref=fb.doc(await aCol());            // gera um id novo
+    const batch=fb.writeBatch(fb.db);
+    batch.set(ref, rest);                       // dados completos (privados, só do dono)
+    batch.set(ocDoc(ref.id), slimOf(appt));     // só o horário ocupado (público)
+    await batch.commit();
+    myCreated.add(ref.id); return ref.id;
+  }
   DB.agendamentos.push(appt); save(); rerenderActive(); return appt.id;
 }
 async function dataUpdate(id,patch){
-  if(CLOUD){ await fb.updateDoc(fb.doc(fb.db,'saloes',currentSalonId,'agendamentos',id),patch); return; }
+  if(CLOUD){
+    const batch=fb.writeBatch(fb.db);
+    batch.update(agDoc(id), patch);
+    if('status' in patch){                      // espelha o status no "ocupado" (libera/ocupa o horário)
+      const a=DB.agendamentos.find(x=>x.id===id);
+      const slim = a ? {...slimOf(a), status:patch.status} : {status:patch.status};
+      batch.set(ocDoc(id), slim, {merge:true});
+    }
+    await batch.commit(); return;
+  }
   const a=DB.agendamentos.find(x=>x.id===id); if(a)Object.assign(a,patch); save(); rerenderActive();
 }
 async function dataDelete(id){
-  if(CLOUD){ await fb.deleteDoc(fb.doc(fb.db,'saloes',currentSalonId,'agendamentos',id)); return; }
+  if(CLOUD){
+    const batch=fb.writeBatch(fb.db);
+    batch.delete(agDoc(id));
+    batch.delete(ocDoc(id));
+    await batch.commit(); return;
+  }
   DB.agendamentos=DB.agendamentos.filter(x=>x.id!==id); save(); rerenderActive();
+}
+// Cria os "ocupados" de agendamentos antigos (feitos antes desta mudança), 1x no login do dono
+async function backfillOcupados(list){
+  if(!CLOUD) return;
+  const now=Date.now();
+  for(const a of list){
+    if(a.status==='cancelado') continue;
+    if(a.startTs && a.startTs < now) continue;   // horários passados não bloqueiam nada
+    try{ await fb.setDoc(ocDoc(a.id), slimOf(a), {merge:true}); }catch(e){}
+  }
 }
 async function saveSettings(){
   if(CLOUD){ await fb.setDoc(await sRef(),{config:DB.config,servicos:DB.servicos,barbeiros:DB.barbeiros}); return; }
@@ -701,11 +739,22 @@ async function loadSalonData(){
   fb.onSnapshot(cfgRef,s=>{ if(s.exists()){ const v=s.data(); DB.config=v.config; DB.servicos=v.servicos; DB.barbeiros=v.barbeiros;
     applyTheme(); updateBrandName(); refreshAll(); rerenderActive(); } });
   let loaded=false;
-  fb.onSnapshot(fb.collection(fb.db,'saloes',currentSalonId,'agendamentos'),qs=>{
-    DB.agendamentos=qs.docs.map(d=>({id:d.id,...d.data()}));
-    if(loaded){ qs.docChanges().forEach(ch=>{ if(ch.type==='added') notifyNewBooking({id:ch.doc.id,...ch.doc.data()}); }); }
-    loaded=true; rerenderActive();
-  });
+  if(isOwnerMode){
+    // DONO: lê os agendamentos completos (com nome/telefone/e-mail dos clientes)
+    let firstBatch=true;
+    fb.onSnapshot(fb.collection(fb.db,'saloes',currentSalonId,'agendamentos'),qs=>{
+      DB.agendamentos=qs.docs.map(d=>({id:d.id,...d.data()}));
+      if(loaded){ qs.docChanges().forEach(ch=>{ if(ch.type==='added') notifyNewBooking({id:ch.doc.id,...ch.doc.data()}); }); }
+      loaded=true; rerenderActive();
+      if(firstBatch){ firstBatch=false; backfillOcupados(DB.agendamentos); }
+    });
+  } else {
+    // CLIENTE: lê só os "ocupados" (dia/hora/profissional) — sem dados pessoais de ninguém
+    fb.onSnapshot(fb.collection(fb.db,'saloes',currentSalonId,'ocupados'),qs=>{
+      DB.agendamentos=qs.docs.map(d=>({id:d.id,...d.data()}));
+      rerenderActive();
+    });
+  }
 }
 // ===== Temas (visual por cliente) =====
 const THEMES = {
@@ -762,6 +811,8 @@ async function doLogout(){ await fb.signOut(fb.auth); window.location.reload(); 
 async function cloudReset(){
   const qs=await fb.getDocs(fb.collection(fb.db,'saloes',currentSalonId,'agendamentos'));
   await Promise.all(qs.docs.map(d=>fb.deleteDoc(fb.doc(fb.db,'saloes',currentSalonId,'agendamentos',d.id))));
+  const qo=await fb.getDocs(fb.collection(fb.db,'saloes',currentSalonId,'ocupados'));
+  await Promise.all(qo.docs.map(d=>fb.deleteDoc(fb.doc(fb.db,'saloes',currentSalonId,'ocupados',d.id))));
   const d=defaultDB(); await fb.setDoc(fb.doc(fb.db,'saloes',currentSalonId,'config','main'),{config:d.config,servicos:d.servicos,barbeiros:d.barbeiros});
 }
 async function initCloud(){
