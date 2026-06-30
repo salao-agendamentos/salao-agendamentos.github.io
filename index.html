@@ -331,6 +331,8 @@
 <div class="wrap">
 <main>
 
+  <div id="suspended-banner" style="display:none;background:var(--red-dim);border:1px solid var(--red);color:var(--red);border-radius:var(--radius-sm);padding:14px 16px;margin-bottom:18px;font-size:14px;text-align:center;font-weight:600"></div>
+
   <!-- ============ CLIENTE ============ -->
   <section class="panel active" id="panel-cliente">
     <div class="grid" style="grid-template-columns:1fr">
@@ -745,6 +747,11 @@ async function loadSalonData(){
   if(!snap.exists()){ const d=defaultDB(); await fb.setDoc(cfgRef,{config:d.config,servicos:d.servicos,barbeiros:d.barbeiros}); }
   fb.onSnapshot(cfgRef,s=>{ if(s.exists()){ const v=s.data(); DB.config=v.config; DB.servicos=v.servicos; DB.barbeiros=v.barbeiros;
     applyTheme(); updateBrandName(); refreshAll(); rerenderActive(); } });
+  // Interruptor de assinatura (controlado só pelo admin no Firebase) — default: ativo
+  fb.onSnapshot(fb.doc(fb.db,'assinaturas',currentSalonId), s=>{
+    DB.ativo = !s.exists() ? true : (s.data().ativo !== false);
+    applyAtivo();
+  });
   let loaded=false;
   if(isOwnerMode){
     // DONO: lê os agendamentos completos (com nome/telefone/e-mail dos clientes)
@@ -800,6 +807,25 @@ function updateBrandName(){
   document.querySelectorAll('.brand-name').forEach(el=>el.textContent=n.toUpperCase());
   const aTitle=$('#auth-title'); if(aTitle) aTitle.textContent=n.toUpperCase();
   document.title = DB.config.nomeSalao ? DB.config.nomeSalao : 'Agendamento online';
+}
+// Aplica o estado da assinatura (ativo/suspenso)
+function applyAtivo(){
+  const banner=$('#suspended-banner'); if(!banner) return;
+  const cli=$('#panel-cliente');
+  if(DB.ativo===false){
+    if(isOwnerMode){
+      banner.textContent='⚠ Sua conta está suspensa. Regularize o pagamento para reativar o agendamento online dos seus clientes.';
+      banner.style.display='block';
+      if(cli) cli.style.display='';
+    } else {
+      banner.textContent='Agendamento indisponível no momento. Entre em contato com o estabelecimento.';
+      banner.style.display='block';
+      if(cli) cli.style.display='none';
+    }
+  } else {
+    banner.style.display='none';
+    if(cli && !isOwnerMode) cli.style.display='';
+  }
 }
 async function doLogin(){
   const email=$('#al-email').value.trim(), pw=$('#al-pw').value;
@@ -1056,6 +1082,7 @@ $('#bk-confirm').onclick=()=>{
 };
 
 async function confirmBooking(nome,tel,email=''){
+  if(DB.ativo===false){ toast('Agendamento indisponível no momento',true); return; }
   const servicos=[...bk.svc].map(id=>{ const s=DB.servicos.find(x=>x.id===id); return {nome:s.nome,dur:s.dur,val:s.val}; });
   const appt={
     id:uid(), barbeiroId:bk.barbeiroId, data:bk.date, inicio:bk.slot,
