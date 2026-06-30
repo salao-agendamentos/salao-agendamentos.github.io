@@ -622,7 +622,7 @@ const $$=s=>document.querySelectorAll(s);
 const DOW=['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MON=['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'];
 const pad=n=>String(n).padStart(2,'0');
-function t2m(t){ const [h,m]=t.split(':').map(Number); return h*60+m; }
+function t2m(t){ const p=String(t==null?'':t).split(':'); const h=Number(p[0]), m=Number(p[1]); return (isFinite(h)?h:0)*60+(isFinite(m)?m:0); }
 function m2t(m){ return pad(Math.floor(m/60))+':'+pad(m%60); }
 function brl(v){ return 'R$ '+ (Math.round(v)).toLocaleString('pt-BR'); }
 function brlc(v){ return 'R$ '+ v.toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2}); }
@@ -846,7 +846,16 @@ async function doRegister(){
     const cred=await fb.createUserWithEmailAndPassword(fb.auth,email,pw);
     const d=defaultDB(); d.config.nomeSalao=nome;
     await fb.setDoc(fb.doc(fb.db,'saloes',cred.user.uid,'config','main'),{config:d.config,servicos:d.servicos,barbeiros:d.barbeiros});
-  }catch(e){ toast(e.code==='auth/email-already-in-use'?'E-mail já cadastrado':'Erro ao criar conta',true); $('#ar-go').disabled=false; }
+  }catch(e){
+    const code=e&&e.code||'';
+    const msg = code==='auth/email-already-in-use' ? 'E-mail já cadastrado'
+      : code==='auth/invalid-email' ? 'E-mail inválido'
+      : code==='auth/weak-password' ? 'Senha muito fraca (mín. 6 caracteres)'
+      : code==='auth/operation-not-allowed' ? 'Cadastro por e-mail/senha está desativado no Firebase'
+      : code==='auth/network-request-failed' ? 'Sem conexão. Verifique a internet e tente de novo'
+      : 'Erro ao criar conta: '+(code||e.message||e);
+    toast(msg,true); $('#ar-go').disabled=false;
+  }
 }
 async function doForgotPw(){
   const email=$('#al-email').value.trim();
@@ -884,6 +893,12 @@ async function initCloud(){
   $('#al-forgot').onclick=doForgotPw;
   $('#al-to-reg').onclick=()=>{ $('#auth-login-panel').style.display='none'; $('#auth-reg-panel').style.display=''; };
   $('#ar-go').onclick=doRegister;
+  const wireEye=(inpId,eyeId)=>{ const eye=$(eyeId); if(!eye) return; eye.onclick=()=>{
+    const inp=$(inpId); const show=inp.type==='password';
+    inp.type=show?'text':'password'; eye.textContent=show?'🙈':'👁';
+    eye.title=show?'Ocultar senha':'Mostrar senha'; inp.focus();
+  }; };
+  wireEye('#ar-pw','#ar-pw-eye'); wireEye('#ar-pw2','#ar-pw2-eye');
   $('#ar-pw2').onkeydown=e=>{ if(e.key==='Enter') doRegister(); };
   $('#ar-to-login').onclick=()=>{ $('#auth-reg-panel').style.display='none'; $('#auth-login-panel').style.display=''; };
   // Routing: ?s=SALONID → client booking mode (no login needed)
@@ -1116,8 +1131,9 @@ function renderAgenda(){
   // stats
   const ativos=list.filter(a=>a.status!=='cancelado');
   const fat=ativos.reduce((s,a)=>s+a.val,0);
-  const minOcup=ativos.reduce((s,a)=>s+a.dur,0);
-  const cap=(t2m(cfg.close)-t2m(cfg.open))-(t2m(cfg.lunchF)-t2m(cfg.lunchI));
+  const minOcup=ativos.reduce((s,a)=>s+(Number(a.dur)||0),0);
+  const lunchDur=Math.max(0, t2m(cfg.lunchF)-t2m(cfg.lunchI));
+  const cap=Math.max(0,(t2m(cfg.close)-t2m(cfg.open))-lunchDur);
   const ocup= cap>0?Math.round(minOcup/cap*100):0;
   $('#ag-stats').innerHTML=`
     <div><div class="kpi" style="padding:10px 14px;display:inline-block"><span class="lab">Agendamentos</span>
@@ -1131,10 +1147,53 @@ function renderAgenda(){
   if(!cfg.days.includes(parseD(data).getDay())){
     tl.innerHTML='<div class="empty">Barbearia fechada nesse dia.</div>'; return;
   }
-  if(list.length===0){ tl.innerHTML='<div class="empty">Nenhum agendamento neste dia. Toque em “+ Encaixe” para adicionar.</div>'; return; }
+  const openM=t2m(cfg.open), closeM=t2m(cfg.close);
+  const lunchI=t2m(cfg.lunchI), lunchF=t2m(cfg.lunchF);
+  const hasLunch = lunchF>lunchI;
 
-  list.forEach(a=>{
-    const b=DB.barbeiros.find(x=>x.id===a.barbeiroId);
+  // só agendamentos não cancelados ocupam horário
+  const blocking = list.filter(a=>a.status!=='cancelado')
+                       .map(a=>[a.inicio, a.inicio+(Number(a.dur)||0)]);
+  const busy = blocking.slice();
+  if(hasLunch) busy.push([lunchI,lunchF]);
+  busy.sort((p,q)=>p[0]-q[0]);
+
+  // calcula os períodos livres dentro do expediente
+  const freeGaps=[]; let cur=openM;
+  busy.forEach(([s,e])=>{ if(s>cur) freeGaps.push([cur, Math.min(s,closeM)]); cur=Math.max(cur,e); });
+  if(cur<closeM) freeGaps.push([cur,closeM]);
+
+  // junta tudo em ordem de horário
+  const items=[];
+  list.forEach(a=> items.push({ini:a.inicio, kind:'appt', a}));
+  if(hasLunch && lunchF>openM && lunchI<closeM) items.push({ini:Math.max(lunchI,openM), fim:Math.min(lunchF,closeM), kind:'lunch'});
+  freeGaps.forEach(([s,e])=>{ if(e>s) items.push({ini:s, fim:e, kind:'free'}); });
+  items.sort((x,y)=> (x.ini-y.ini) || (x.kind==='appt'?-1:1));
+
+  const durTxt=mn=>{ const h=Math.floor(mn/60), m=mn%60; return (h?h+'h':'')+(m?(h?' ':'')+m+'min':(h?'':'0min')); };
+
+  items.forEach(it=>{
+    if(it.kind==='free'){
+      const row=document.createElement('div'); row.className='tl-row';
+      row.innerHTML=`
+        <div class="tl-time" style="color:var(--muted-2)">${m2t(it.ini)}</div>
+        <div class="appt" style="background:transparent;border:1px dashed var(--line-2);box-shadow:none;opacity:.85;min-height:0;padding:10px 14px">
+          <div style="flex:1"><div class="who" style="color:var(--muted)">Livre</div>
+            <div class="svcs" style="color:var(--muted-2)">${m2t(it.ini)} – ${m2t(it.fim)} · ${durTxt(it.fim-it.ini)}</div></div>
+        </div>`;
+      tl.appendChild(row); return;
+    }
+    if(it.kind==='lunch'){
+      const row=document.createElement('div'); row.className='tl-row';
+      row.innerHTML=`
+        <div class="tl-time" style="color:var(--muted-2)">${m2t(it.ini)}</div>
+        <div class="appt" style="background:var(--surface-2);border:1px solid var(--line);box-shadow:none;opacity:.9;min-height:0;padding:10px 14px">
+          <div style="flex:1"><div class="who" style="color:var(--muted)">🍽 Almoço</div>
+            <div class="svcs" style="color:var(--muted-2)">${m2t(it.ini)} – ${m2t(it.fim)}</div></div>
+        </div>`;
+      tl.appendChild(row); return;
+    }
+    const a=it.a;
     const row=document.createElement('div'); row.className='tl-row';
     const statusPill = a.status==='concluido'?'<span class="pill" style="background:var(--green-dim);color:var(--green-bright)">Concluído</span>'
       : a.status==='cancelado'?'<span class="pill" style="background:var(--red-dim);color:#e89c91">Cancelado</span>'
@@ -1503,9 +1562,17 @@ function refreshAll(){
       <label class="fld">E-mail</label>
       <input id="ar-email" type="email" placeholder="seu@email.com" style="margin-bottom:12px" />
       <label class="fld">Senha (mín. 6 caracteres)</label>
-      <input id="ar-pw" type="password" placeholder="••••••••" style="margin-bottom:12px" />
+      <div style="position:relative;margin-bottom:12px">
+        <input id="ar-pw" type="password" placeholder="••••••••" style="margin-bottom:0;width:100%;padding-right:48px" />
+        <button type="button" id="ar-pw-eye" aria-label="Mostrar senha" title="Mostrar senha"
+          style="position:absolute;top:50%;right:8px;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;line-height:1;color:var(--muted);padding:6px">👁</button>
+      </div>
       <label class="fld">Confirmar senha</label>
-      <input id="ar-pw2" type="password" placeholder="••••••••" style="margin-bottom:18px" />
+      <div style="position:relative;margin-bottom:18px">
+        <input id="ar-pw2" type="password" placeholder="••••••••" style="margin-bottom:0;width:100%;padding-right:48px" />
+        <button type="button" id="ar-pw2-eye" aria-label="Mostrar senha" title="Mostrar senha"
+          style="position:absolute;top:50%;right:8px;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;line-height:1;color:var(--muted);padding:6px">👁</button>
+      </div>
       <button class="btn btn-green" id="ar-go" style="width:100%;margin-bottom:14px">Criar minha conta</button>
       <button class="auth-link" id="ar-to-login">← Já tenho conta</button>
     </div>
