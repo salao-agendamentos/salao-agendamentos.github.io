@@ -211,6 +211,40 @@
 
   .chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
   @media(max-width:760px){.chart-grid{grid-template-columns:1fr}}
+
+  /* ---------- Responsivo / celular ---------- */
+  @media(max-width:640px){
+    .wrap{padding:0 14px 70px}
+    .brand-row{flex-wrap:wrap;gap:10px;padding:14px 0 4px}
+    .brand .mark{width:40px;height:40px;font-size:18px}
+    .brand h1{font-size:26px;letter-spacing:1.5px}
+    .brand .tag{font-size:11.5px}
+    nav.tabs{gap:2px;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch;scrollbar-width:none}
+    nav.tabs::-webkit-scrollbar{display:none}
+    .tab{padding:10px 12px;font-size:13px;white-space:nowrap}
+    .controls{gap:10px}
+    .controls .grp{min-width:0;flex:1 1 46%}
+    .kpis{grid-template-columns:1fr 1fr;gap:10px}
+    .kpi{padding:13px 14px}
+    .kpi .num{font-size:30px}
+    .tl-row{grid-template-columns:50px 1fr;gap:10px}
+    .tl-time{font-size:15px}
+    .appt{padding:11px 12px;gap:8px}
+    .appt>div[style*="text-align:right"]{text-align:left!important;width:100%}
+    .appt .acts{justify-content:flex-start!important;margin-top:6px!important}
+    .appt .price{font-size:19px}
+    .btn{padding:9px 13px}
+    .btn-sm{padding:8px 11px;font-size:12.5px}
+    .modal{border-radius:16px 16px 0 0;max-height:92vh;align-self:flex-end}
+    .auth-card{padding:24px 20px;border-radius:16px}
+    .auth-brand h1{font-size:26px}
+    input,select,textarea,.btn{font-size:16px}  /* evita zoom automático do iOS */
+    .overlay{align-items:flex-end;padding:0}
+  }
+  @media(max-width:380px){
+    .kpis{grid-template-columns:1fr}
+    .controls .grp{flex:1 1 100%}
+  }
   .chart h3{font-family:'Marcellus';font-size:19px;letter-spacing:1px;margin-bottom:4px;font-weight:400}
   .chart .hint{font-size:12px;color:var(--muted);margin-bottom:16px}
 
@@ -451,6 +485,11 @@
         <h2 class="sec">Nome e endereço do salão</h2>
         <label class="fld">Nome do salão (aparece no app e no lembrete)</label>
         <input id="cfg-nome-salao" placeholder="Ex: Studio Maria" style="margin-bottom:14px" />
+        <label class="fld">Tipo de visual (muda as cores do app)</label>
+        <select id="cfg-tema" style="margin-bottom:14px">
+          <option value="salao">Salão / Estética — tons rosé (claro)</option>
+          <option value="barbearia">Barbearia — tons âmbar (escuro)</option>
+        </select>
         <label class="fld">Endereço (aparece no agendamento e no lembrete)</label>
         <input id="cfg-endereco" placeholder="Ex: Rua das Flores, 123 — Centro, Curitiba" style="margin-bottom:14px" />
         <label class="fld">Meu link de agendamento (compartilhe com as clientes)</label>
@@ -544,7 +583,7 @@ let DB = defaultDB();
 
 function defaultDB(){
   return {
-    config:{ open:'09:00', close:'19:00', lunchI:'12:00', lunchF:'13:00', slot:15, days:[2,3,4,5,6], nomeSalao:'', endereco:'' },
+    config:{ open:'09:00', close:'19:00', lunchI:'12:00', lunchF:'13:00', slot:15, days:[2,3,4,5,6], nomeSalao:'', endereco:'', tema:'salao' },
     servicos:[
       {id:'s1',  nome:'Corte feminino',        dur:60,  val:70},
       {id:'s2',  nome:'Escova',                dur:45,  val:50},
@@ -660,13 +699,32 @@ async function loadSalonData(){
   const snap=await fb.getDoc(cfgRef);
   if(!snap.exists()){ const d=defaultDB(); await fb.setDoc(cfgRef,{config:d.config,servicos:d.servicos,barbeiros:d.barbeiros}); }
   fb.onSnapshot(cfgRef,s=>{ if(s.exists()){ const v=s.data(); DB.config=v.config; DB.servicos=v.servicos; DB.barbeiros=v.barbeiros;
-    updateBrandName(); refreshAll(); rerenderActive(); } });
+    applyTheme(); updateBrandName(); refreshAll(); rerenderActive(); } });
   let loaded=false;
   fb.onSnapshot(fb.collection(fb.db,'saloes',currentSalonId,'agendamentos'),qs=>{
     DB.agendamentos=qs.docs.map(d=>({id:d.id,...d.data()}));
     if(loaded){ qs.docChanges().forEach(ch=>{ if(ch.type==='added') notifyNewBooking({id:ch.doc.id,...ch.doc.data()}); }); }
     loaded=true; rerenderActive();
   });
+}
+// ===== Temas (visual por cliente) =====
+const THEMES = {
+  salao: { mark:'❀',
+    '--bg':'#fbf5f1','--bg-2':'#f5e9e3','--surface':'#ffffff','--surface-2':'#fbf1ed','--surface-3':'#f6e6df',
+    '--line':'#eedfd8','--line-2':'#e3cabf','--brass':'#c0788a','--brass-bright':'#d68fa0','--cream':'#46333b',
+    '--muted':'#9c8088','--muted-2':'#b9a3a9','--green':'#5aa67c','--green-bright':'#6fbd91','--green-dim':'#e6f1ea',
+    '--red':'#c76f6f','--red-dim':'#f6e2e2','--blue':'#9a8fb0' },
+  barbearia: { mark:'✂',
+    '--bg':'#15120e','--bg-2':'#1d1812','--surface':'#1a1611','--surface-2':'#211b15','--surface-3':'#2a2219',
+    '--line':'#2f2820','--line-2':'#41372b','--brass':'#c8a25a','--brass-bright':'#e3c07e','--cream':'#ece3d4',
+    '--muted':'#a2937e','--muted-2':'#6f6253','--green':'#5aa67c','--green-bright':'#7cc79a','--green-dim':'#1e2a22',
+    '--red':'#cf7d7d','--red-dim':'#2e1f1f','--blue':'#a99ec2' },
+};
+function applyTheme(){
+  const t = THEMES[DB.config?.tema] || THEMES.salao;
+  const root = document.documentElement.style;
+  Object.entries(t).forEach(([k,v])=>{ if(k.startsWith('--')) root.setProperty(k,v); });
+  document.querySelectorAll('.mark').forEach(el=>{ el.textContent = t.mark; });
 }
 function updateBrandName(){
   const n=DB.config.nomeSalao||'LUMIÈRE';
@@ -716,6 +774,14 @@ async function initCloud(){
   fb = { db, auth, ...fsMod, ...authMod };
   // Auth screen wire-up
   $('#al-go').onclick=doLogin;
+  $('#al-pw-eye').onclick=()=>{
+    const inp=$('#al-pw'), eye=$('#al-pw-eye');
+    const show = inp.type==='password';
+    inp.type = show ? 'text' : 'password';
+    eye.textContent = show ? '🙈' : '👁';
+    eye.title = show ? 'Ocultar senha' : 'Mostrar senha';
+    inp.focus();
+  };
   $('#al-pw').onkeydown=e=>{ if(e.key==='Enter') doLogin(); };
   $('#al-forgot').onclick=doForgotPw;
   $('#al-to-reg').onclick=()=>{ $('#auth-login-panel').style.display='none'; $('#auth-reg-panel').style.display=''; };
@@ -902,15 +968,18 @@ $('#bk-confirm').onclick=()=>{
     <input id="m-name" placeholder="Nome completo" style="margin-bottom:12px" />
     <label class="fld">WhatsApp / telefone</label>
     <input id="m-tel" placeholder="(00) 90000-0000" style="margin-bottom:12px" />
-    <label class="fld">E-mail <span style="color:var(--muted);font-weight:400">(para receber lembrete)</span></label>
-    <input id="m-email" type="email" placeholder="seuemail@exemplo.com" style="margin-bottom:18px" />
+    <label class="fld">E-mail <span style="color:var(--brass);font-weight:600">*</span> <span style="color:var(--muted);font-weight:400">(você recebe o lembrete aqui)</span></label>
+    <input id="m-email" type="email" placeholder="seuemail@exemplo.com" required style="margin-bottom:18px" />
     <button class="btn btn-green" id="m-go" style="width:100%">Confirmar agendamento</button>
   `);
   setTimeout(()=>$('#m-name').focus(),50);
   $('#m-go').onclick=()=>{
     const nome=$('#m-name').value.trim();
+    const email=$('#m-email').value.trim();
     if(!nome){ toast('Informe seu nome',true); return; }
-    confirmBooking(nome, $('#m-tel').value.trim(), $('#m-email').value.trim());
+    if(!email){ toast('Informe seu e-mail para receber o lembrete',true); $('#m-email').focus(); return; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast('E-mail inválido. Confira e tente de novo.',true); $('#m-email').focus(); return; }
+    confirmBooking(nome, $('#m-tel').value.trim(), email);
   };
 };
 
@@ -1183,6 +1252,7 @@ function renderConfig(){
   $('#cfg-lunch-i').value=DB.config.lunchI; $('#cfg-lunch-f').value=DB.config.lunchF;
   $('#cfg-slot').value=DB.config.slot;
   $('#cfg-nome-salao').value=DB.config.nomeSalao||'';
+  $('#cfg-tema').value=DB.config.tema||'salao';
   $('#cfg-endereco').value=DB.config.endereco||'';
   const myLink=currentSalonId?`${window.location.origin}${window.location.pathname}?s=${currentSalonId}`:'';
   $('#cfg-my-link').value=myLink;
@@ -1204,6 +1274,8 @@ $('#cfg-save').onclick=async()=>{
   DB.config.slot=+$('#cfg-slot').value;
   DB.config.nomeSalao=$('#cfg-nome-salao').value.trim();
   DB.config.endereco=$('#cfg-endereco').value.trim();
+  DB.config.tema=$('#cfg-tema').value;
+  applyTheme();
   updateBrandName();
   DB.config.days=[...$('#cfg-days').querySelectorAll('button.on')].map(b=>+b.dataset.d);
   await saveSettings(); toast('Ajustes salvos ✓');
@@ -1311,7 +1383,11 @@ function refreshAll(){
       <label class="fld">E-mail</label>
       <input id="al-email" type="email" placeholder="seu@email.com" style="margin-bottom:12px" />
       <label class="fld">Senha</label>
-      <input id="al-pw" type="password" placeholder="••••••••" style="margin-bottom:18px" />
+      <div style="position:relative;margin-bottom:18px">
+        <input id="al-pw" type="password" placeholder="••••••••" style="margin-bottom:0;width:100%;padding-right:48px" />
+        <button type="button" id="al-pw-eye" aria-label="Mostrar senha" title="Mostrar senha"
+          style="position:absolute;top:50%;right:8px;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:18px;line-height:1;color:var(--muted);padding:6px">👁</button>
+      </div>
       <button class="btn btn-primary" id="al-go" style="width:100%;margin-bottom:14px">Entrar</button>
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px">
         <button class="auth-link" id="al-forgot">Esqueci minha senha</button>
