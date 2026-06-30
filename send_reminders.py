@@ -171,7 +171,8 @@ def build_message(appt, to_email, start_ms):
 
     msg = EmailMessage()
     msg["Subject"] = f"Lembrete: seu horário às {hora} — {salao}"
-    msg["From"] = formataddr((FROM_NAME or salao, SMTP_FROM))
+    # Remetente: mostra o nome DO SALÃO de cada agendamento (multi-cliente).
+    msg["From"] = formataddr((salao or FROM_NAME or "Agendamentos", SMTP_FROM))
     msg["To"] = to_email
     msg.set_content(texto)
     msg.add_alternative(html, subtype="html")
