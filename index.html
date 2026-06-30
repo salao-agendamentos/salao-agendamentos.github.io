@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Lumière · Salão de Beleza (online)</title>
+<title>Agendamento online</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;1,500&family=Jost:wght@400;500;600;700&family=Marcellus&display=swap" rel="stylesheet" />
@@ -311,7 +311,7 @@
         <div class="mark">❀</div>
         <div>
           <h1 class="brand-name">LUMIÈRE</h1>
-          <div class="tag">salão de beleza &amp; estética</div>
+          <div class="tag">agendamento online</div>
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:14px">
@@ -482,17 +482,24 @@
 
       <div class="card">
         <div class="eyebrow">Identidade</div>
-        <h2 class="sec">Nome e endereço do salão</h2>
-        <label class="fld">Nome do salão (aparece no app e no lembrete)</label>
-        <input id="cfg-nome-salao" placeholder="Ex: Studio Maria" style="margin-bottom:14px" />
+        <h2 class="sec">Nome e endereço do estabelecimento</h2>
+        <label class="fld">Nome do estabelecimento (aparece no app e no lembrete)</label>
+        <input id="cfg-nome-salao" placeholder="Ex: Studio Centro" style="margin-bottom:14px" />
         <label class="fld">Tipo de visual (muda as cores do app)</label>
         <select id="cfg-tema" style="margin-bottom:14px">
           <option value="salao">Salão / Estética — tons rosé (claro)</option>
           <option value="barbearia">Barbearia — tons âmbar (escuro)</option>
         </select>
+        <label class="fld">Cor de destaque (botões e detalhes)</label>
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+          <input id="cfg-cor" type="color" value="#c0788a" style="width:54px;height:40px;padding:3px;margin:0;appearance:auto;-webkit-appearance:auto" />
+          <label style="display:flex;align-items:center;gap:7px;font-size:13px;color:var(--muted);cursor:pointer;text-transform:none;letter-spacing:0;margin:0">
+            <input id="cfg-cor-on" type="checkbox" style="width:18px;height:18px;padding:0;margin:0;appearance:auto;-webkit-appearance:auto;accent-color:var(--brass)" /> Usar cor personalizada
+          </label>
+        </div>
         <label class="fld">Endereço (aparece no agendamento e no lembrete)</label>
         <input id="cfg-endereco" placeholder="Ex: Rua das Flores, 123 — Centro, Curitiba" style="margin-bottom:14px" />
-        <label class="fld">Meu link de agendamento (compartilhe com as clientes)</label>
+        <label class="fld">Meu link de agendamento (compartilhe com seus clientes)</label>
         <div class="link-box">
           <input id="cfg-my-link" readonly placeholder="disponível após login" />
           <button class="btn btn-ghost btn-sm" id="cfg-copy-link">Copiar</button>
@@ -583,7 +590,7 @@ let DB = defaultDB();
 
 function defaultDB(){
   return {
-    config:{ open:'09:00', close:'19:00', lunchI:'12:00', lunchF:'13:00', slot:15, days:[2,3,4,5,6], nomeSalao:'', endereco:'', tema:'salao' },
+    config:{ open:'09:00', close:'19:00', lunchI:'12:00', lunchF:'13:00', slot:15, days:[2,3,4,5,6], nomeSalao:'', endereco:'', tema:'salao', cor:'' },
     servicos:[
       {id:'s1',  nome:'Corte feminino',        dur:60,  val:70},
       {id:'s2',  nome:'Escova',                dur:45,  val:50},
@@ -758,27 +765,41 @@ async function loadSalonData(){
 }
 // ===== Temas (visual por cliente) =====
 const THEMES = {
-  salao: { mark:'❀',
+  salao: { mark:'❀', tag:'beleza & estética',
     '--bg':'#fbf5f1','--bg-2':'#f5e9e3','--surface':'#ffffff','--surface-2':'#fbf1ed','--surface-3':'#f6e6df',
     '--line':'#eedfd8','--line-2':'#e3cabf','--brass':'#c0788a','--brass-bright':'#d68fa0','--cream':'#46333b',
     '--muted':'#9c8088','--muted-2':'#b9a3a9','--green':'#5aa67c','--green-bright':'#6fbd91','--green-dim':'#e6f1ea',
     '--red':'#c76f6f','--red-dim':'#f6e2e2','--blue':'#9a8fb0' },
-  barbearia: { mark:'✂',
+  barbearia: { mark:'✂', tag:'barbearia',
     '--bg':'#15120e','--bg-2':'#1d1812','--surface':'#1a1611','--surface-2':'#211b15','--surface-3':'#2a2219',
     '--line':'#2f2820','--line-2':'#41372b','--brass':'#c8a25a','--brass-bright':'#e3c07e','--cream':'#ece3d4',
     '--muted':'#a2937e','--muted-2':'#6f6253','--green':'#5aa67c','--green-bright':'#7cc79a','--green-dim':'#1e2a22',
     '--red':'#cf7d7d','--red-dim':'#2e1f1f','--blue':'#a99ec2' },
 };
+// clareia uma cor hex misturando com branco (amt 0..1)
+function lighten(hex, amt){
+  const h=String(hex).replace('#',''); if(h.length!==6) return hex;
+  const f=i=>{ const x=parseInt(h.substr(i,2),16); return Math.round(x+(255-x)*amt).toString(16).padStart(2,'0'); };
+  return '#'+f(0)+f(2)+f(4);
+}
 function applyTheme(){
   const t = THEMES[DB.config?.tema] || THEMES.salao;
   const root = document.documentElement.style;
   Object.entries(t).forEach(([k,v])=>{ if(k.startsWith('--')) root.setProperty(k,v); });
+  // cor de destaque personalizada (opcional) sobrepõe o tom do tema
+  const cor = DB.config?.cor;
+  if(cor && /^#[0-9a-fA-F]{6}$/.test(cor)){
+    root.setProperty('--brass', cor);
+    root.setProperty('--brass-bright', lighten(cor, 0.18));
+  }
   document.querySelectorAll('.mark').forEach(el=>{ el.textContent = t.mark; });
+  document.querySelectorAll('.brand .tag').forEach(el=>{ el.textContent = t.tag; });
 }
 function updateBrandName(){
   const n=DB.config.nomeSalao||'LUMIÈRE';
   document.querySelectorAll('.brand-name').forEach(el=>el.textContent=n.toUpperCase());
   const aTitle=$('#auth-title'); if(aTitle) aTitle.textContent=n.toUpperCase();
+  document.title = DB.config.nomeSalao ? DB.config.nomeSalao : 'Agendamento online';
 }
 async function doLogin(){
   const email=$('#al-email').value.trim(), pw=$('#al-pw').value;
@@ -790,7 +811,7 @@ async function doLogin(){
 async function doRegister(){
   const nome=$('#ar-nome').value.trim(), email=$('#ar-email').value.trim();
   const pw=$('#ar-pw').value, pw2=$('#ar-pw2').value;
-  if(!nome){ toast('Informe o nome do salão',true); return; }
+  if(!nome){ toast('Informe o nome do estabelecimento',true); return; }
   if(!email){ toast('Informe o e-mail',true); return; }
   if(pw.length<6){ toast('Senha mínimo 6 caracteres',true); return; }
   if(pw!==pw2){ toast('Senhas não conferem',true); return; }
@@ -851,8 +872,8 @@ async function initCloud(){
       if(user){
         currentUser=user; currentSalonId=user.uid; isOwnerMode=true;
         await loadSalonData(); hideAuthOverlay(); applyRole(); refreshAll();
-        if(!DB.config.nomeSalao){ setTimeout(()=>{ goTab('config'); toast('Configure o nome do seu salão ❀'); },500); }
-        else toast('Bem-vinda! ❀');
+        if(!DB.config.nomeSalao){ setTimeout(()=>{ goTab('config'); toast('Configure o nome do seu estabelecimento'); },500); }
+        else toast('Boas-vindas!');
       } else { showAuthOverlay(); }
       resolve();
     });
@@ -870,7 +891,7 @@ function notifyNewBooking(a){
   const txt=`${a.cliente||'Cliente'} · ${(a.servicos||[]).map(s=>s.nome).join(' + ')} · ${m2t(a.inicio)} ${fmtDay(a.data)}`;
   toast('🔔 Novo agendamento: '+(a.cliente||'cliente')); beep();
   if('Notification' in window && Notification.permission==='granted'){
-    try{ new Notification('Novo agendamento ❀ '+(b?b.nome:''), { body: txt }); }catch(e){}
+    try{ new Notification('Novo agendamento — '+(b?b.nome:''), { body: txt }); }catch(e){}
   }
 }
 function rerenderActive(){
@@ -1046,7 +1067,7 @@ async function confirmBooking(nome,tel,email=''){
   try{ await dataAdd(appt); }
   catch(e){ toast('Erro ao salvar: '+(e.message||e),true); return; }
   closeModal();
-  toast('Horário confirmado! ❀');
+  toast('Horário confirmado!');
   bk.svc.clear(); bk.slot=null;
   renderServices(); renderSlots(); updateSummary();
 }
@@ -1304,6 +1325,9 @@ function renderConfig(){
   $('#cfg-slot').value=DB.config.slot;
   $('#cfg-nome-salao').value=DB.config.nomeSalao||'';
   $('#cfg-tema').value=DB.config.tema||'salao';
+  const temaBase = (THEMES[DB.config.tema]||THEMES.salao)['--brass'];
+  $('#cfg-cor-on').checked = !!DB.config.cor;
+  $('#cfg-cor').value = DB.config.cor || temaBase;
   $('#cfg-endereco').value=DB.config.endereco||'';
   const myLink=currentSalonId?`${window.location.origin}${window.location.pathname}?s=${currentSalonId}`:'';
   $('#cfg-my-link').value=myLink;
@@ -1326,6 +1350,7 @@ $('#cfg-save').onclick=async()=>{
   DB.config.nomeSalao=$('#cfg-nome-salao').value.trim();
   DB.config.endereco=$('#cfg-endereco').value.trim();
   DB.config.tema=$('#cfg-tema').value;
+  DB.config.cor = $('#cfg-cor-on').checked ? $('#cfg-cor').value : '';
   applyTheme();
   updateBrandName();
   DB.config.days=[...$('#cfg-days').querySelectorAll('button.on')].map(b=>+b.dataset.d);
@@ -1446,8 +1471,8 @@ function refreshAll(){
       </div>
     </div>
     <div id="auth-reg-panel" style="display:none">
-      <label class="fld">Nome do salão</label>
-      <input id="ar-nome" placeholder="Ex: Studio Maria" style="margin-bottom:12px" />
+      <label class="fld">Nome do estabelecimento</label>
+      <input id="ar-nome" placeholder="Ex: Studio Centro" style="margin-bottom:12px" />
       <label class="fld">E-mail</label>
       <input id="ar-email" type="email" placeholder="seu@email.com" style="margin-bottom:12px" />
       <label class="fld">Senha (mín. 6 caracteres)</label>
