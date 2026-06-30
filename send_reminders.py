@@ -233,6 +233,17 @@ def process_salon(db, salon_id, now_ms):
     return enviados
 
 
+def salon_ativo(db, salon_id):
+    """Salão suspenso (assinaturas/{id}.ativo == False) é ignorado. Sem doc = ativo."""
+    try:
+        snap = db.collection("assinaturas").document(salon_id).get()
+        if snap.exists:
+            return (snap.to_dict() or {}).get("ativo", True) is not False
+        return True
+    except Exception:
+        return True
+
+
 def main():
     if not DRY_RUN and not all([SMTP_HOST, SMTP_USER, SMTP_PASS]):
         sys.exit("ERRO: configure SMTP_HOST, SMTP_USER e SMTP_PASS (ou use DRY_RUN=1 para testar).")
@@ -245,7 +256,12 @@ def main():
     print(f"== Lembretes | {agora_local} ({TZ.key}) | janela={LEAD_MINUTES}min | "
           f"salões={len(alvos)} | dry_run={DRY_RUN} ==")
 
-    total = sum(process_salon(db, sid, now_ms) for sid in alvos)
+    total = 0
+    for sid in alvos:
+        if not salon_ativo(db, sid):
+            print(f"[SUSPENSO] salão {sid} ignorado (assinatura inativa).")
+            continue
+        total += process_salon(db, sid, now_ms)
     print(f"== Fim. {total} lembrete(s) processado(s). ==")
 
 
